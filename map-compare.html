@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Map Compare</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/flatgeobuf@3.30.0/dist/flatgeobuf-geojson.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0f1117;
+      --surface:    #181c26;
+      --border:     rgba(255,255,255,0.07);
+      --gap:        6px;
+      --header-h:   48px;
+      --accent-1:   #38bdf8;   /* sky  */
+      --accent-2:   #a3e635;   /* lime */
+      --accent-3:   #f97316;   /* orange */
+      --text:       #e8eaf0;
+      --muted:      rgba(232,234,240,0.40);
+      --font:       'Syne', sans-serif;
+      --mono:       'Fira Code', monospace;
+    }
+
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); }
+
+    /* ── Header ── */
+    header {
+      height: var(--header-h);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: relative;
+      z-index: 500;
+    }
+
+    header h1 {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .sync-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .sync-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 6px #22c55e;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    /* ── Map grid ── */
+    #grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: var(--gap);
+      padding: var(--gap);
+      height: calc(100vh - var(--header-h));
+      background: var(--bg);
+    }
+
+    .panel {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #000;
+      /* entrance animation */
+      opacity: 0;
+      transform: translateY(12px);
+      animation: fadeUp 0.5s ease forwards;
+    }
+    .panel:nth-child(1) { animation-delay: 0.05s; }
+    .panel:nth-child(2) { animation-delay: 0.15s; }
+    .panel:nth-child(3) { animation-delay: 0.25s; }
+
+    @keyframes fadeUp {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .panel-map { width: 100%; height: 100%; }
+
+    /* ── Panel label ── */
+    .panel-label {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 400;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15,17,23,0.82);
+      border: 1px solid var(--panel-border-color);
+      border-radius: 6px;
+      padding: 5px 10px 5px 8px;
+      backdrop-filter: blur(6px);
+      pointer-events: none;
+    }
+
+    .panel-label .dot {
+      width: 10px; height: 10px;
+      border-radius: 3px;
+      background: var(--panel-color);
+      flex-shrink: 0;
+    }
+
+    .panel-label .name {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--text);
+    }
+
+    .panel-label .count {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      margin-left: 2px;
+    }
+
+    /* ── Loading overlay ── */
+    .panel-loading {
+      position: absolute;
+      inset: 0;
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15,17,23,0.55);
+      backdrop-filter: blur(2px);
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    .panel-loading.hidden { opacity: 0; }
+
+    .spinner {
+      width: 28px; height: 28px;
+      border: 2px solid rgba(255,255,255,0.10);
+      border-top-color: var(--panel-color);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Error badge ── */
+    .panel-error {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 400;
+      background: rgba(239,68,68,0.15);
+      border: 1px solid rgba(239,68,68,0.40);
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #fca5a5;
+      display: none;
+    }
+
+    /* Leaflet tweaks */
+    .leaflet-control-attribution { display: none; }
+    .leaflet-control-zoom {
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      overflow: hidden;
+    }
+    .leaflet-control-zoom a {
+      background: rgba(15,17,23,0.85) !important;
+      color: var(--text) !important;
+      border-color: var(--border) !important;
+    }
+    .leaflet-control-zoom a:hover { background: var(--surface) !important; }
+
+    /* Feature tooltip */
+    .leaflet-tooltip.ftip {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: rgba(15,17,23,0.92);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 5px;
+      padding: 5px 9px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+      white-space: nowrap;
+    }
+    .leaflet-tooltip.ftip::before { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Map Compare</h1>
+  <div class="sync-badge">
+    <div class="sync-dot"></div>
+    Navigation linked
+  </div>
+</header>
+
+<div id="grid">
+  <!-- panels injected by JS -->
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  CONFIGURATION
+// ══════════════════════════════════════════════
+const LAYERS = [
+  {
+    name:  "Layer 1",
+    url:   "https://your-server.example.com/layer1.fgb",
+    color: "#38bdf8",
+  },
+  {
+    name:  "Layer 2",
+    url:   "https://your-server.example.com/layer2.fgb",
+    color: "#a3e635",
+  },
+  {
+    name:  "Layer 3",
+    url:   "https://your-server.example.com/layer3.fgb",
+    color: "#f97316",
+  },
+];
+
+const WMS_URL   = "https://api.dataforsyningen.dk/topo_skaermkort_DAF";
+const WMS_TOKEN = "815e9bb1c49eefff1f03926e2cd7b10e";
+const WMS_LAYER = "dtk_skaermkort_daempet";
+
+const INIT_CENTER = [56.0, 10.0];
+const INIT_ZOOM   = 7;
+// ══════════════════════════════════════════════
+
+const grid = document.getElementById('grid');
+const maps = [];
+let syncing = false;
+
+// ── Build panels & maps ───────────────────────
+LAYERS.forEach((cfg, i) => {
+  // Panel shell
+  const panel = document.createElement('div');
+  panel.className = 'panel';
+  panel.style.setProperty('--panel-color', cfg.color);
+  panel.style.setProperty('--panel-border-color', cfg.color + '55');
+
+  panel.innerHTML = `
+    <div class="panel-map" id="map${i}"></div>
+
+    <div class="panel-label">
+      <div class="dot"></div>
+      <span class="name">${cfg.name}</span>
+      <span class="count" id="count${i}"></span>
+    </div>
+
+    <div class="panel-loading" id="loading${i}">
+      <div class="spinner"></div>
+    </div>
+
+    <div class="panel-error" id="error${i}"></div>
+  `;
+  grid.appendChild(panel);
+
+  // Leaflet map
+  const m = L.map(`map${i}`, {
+    center:      INIT_CENTER,
+    zoom:        INIT_ZOOM,
+    zoomControl: i === 0,   // only first panel shows zoom buttons
+    attributionControl: false,
+  });
+
+  // WMS background
+  L.tileLayer.wms(`${WMS_URL}?token=${WMS_TOKEN}`, {
+    layers:      WMS_LAYER,
+    format:      'image/png',
+    transparent: true,
+    version:     '1.1.1',
+  }).addTo(m);
+
+  maps.push(m);
+});
+
+// ── Sync navigation ───────────────────────────
+maps.forEach((m, i) => {
+  m.on('movestart', () => { syncing = true; });
+  m.on('move', () => {
+    if (!syncing) return;
+    const center = m.getCenter();
+    const zoom   = m.getZoom();
+    maps.forEach((other, j) => {
+      if (j !== i) other.setView(center, zoom, { animate: false });
+    });
+  });
+  m.on('moveend', () => { syncing = false; });
+});
+
+// ── Load FlatGeobuf layers ────────────────────
+async function loadLayer(cfg, mapInstance, index) {
+  const loadingEl = document.getElementById(`loading${index}`);
+  const countEl   = document.getElementById(`count${index}`);
+  const errorEl   = document.getElementById(`error${index}`);
+
+  try {
+    const resp = await fetch(cfg.url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const geojsonLayer = L.geoJSON(null, {
+      style: () => ({
+        color:       cfg.color,
+        weight:      1.5,
+        opacity:     0.9,
+        fillColor:   cfg.color,
+        fillOpacity: 0.20,
+      }),
+      onEachFeature(feature, layer) {
+        const props = feature.properties || {};
+        const rows  = Object.entries(props)
+          .map(([k, v]) => `<b style="color:${cfg.color}">${k}</b> ${v}`)
+          .join('<br>');
+        if (rows) {
+          layer.bindTooltip(rows, {
+            className: 'ftip',
+            sticky:    true,
+            direction: 'top',
+            offset:    [0, -6],
+          });
+        }
+        layer.on('mouseover', function () {
+          this.setStyle({ fillOpacity: 0.50, weight: 2.5 });
+        });
+        layer.on('mouseout', function () {
+          geojsonLayer.resetStyle(this);
+        });
+      },
+    });
+
+    let count = 0;
+    const iter = flatgeobuf.deserialize(resp.body);
+    for await (const feature of iter) {
+      geojsonLayer.addData(feature);
+      count++;
+      if (count % 200 === 0) countEl.textContent = count.toLocaleString();
+    }
+
+    geojsonLayer.addTo(mapInstance);
+    countEl.textContent = count.toLocaleString();
+
+  } catch (err) {
+    console.error(`Layer ${index + 1} error:`, err);
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    loadingEl.classList.add('hidden');
+    setTimeout(() => loadingEl.remove(), 500);
+  }
+}
+
+LAYERS.forEach((cfg, i) => loadLayer(cfg, maps[i], i));
+</script>
+</body>
+</html>
