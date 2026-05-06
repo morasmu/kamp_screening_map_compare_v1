@@ -452,7 +452,7 @@ async function loadForBounds(cfg, mapInstance, index) {
         addFeature(feature);
       }
     } catch (innerErr) {
-      if (!(innerErr instanceof RangeError)) throw innerErr;
+      if (!(innerErr instanceof RangeError) && !(innerErr instanceof TypeError)) throw innerErr;
       // Spatial index R-tree traversal failed (version 0 fgb off-by-one bug).
       // Fall back: stream all features, filter client-side by viewport bbox.
       geojsonLayer.clearLayers();
