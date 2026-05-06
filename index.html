@@ -278,7 +278,7 @@ function reprojectFeature(feature) {
 // ══════════════════════════════════════════════
 const LAYERS = [
   {
-    name:  "Screeningslag 2025 (2020, 20 m lag)",
+    name:  "Screeningslag 2025 (2020, 10 m lag)",
     url:   "https://kamp.klimatilpasning.dk/data/flatgeobuf/2026/kloakopland_bygning_2026_0.fgb",
     color: "#38bdf8",
   },
@@ -377,6 +377,14 @@ maps.forEach((m, i) => {
 });
 
 // ── Spatial data loading ──────────────────────
+function featureIntersectsRect(coords, rect) {
+  if (typeof coords[0] === 'number') {
+    return coords[0] >= rect.minX - 500 && coords[0] <= rect.maxX + 500 &&
+           coords[1] >= rect.minY - 500 && coords[1] <= rect.maxY + 500;
+  }
+  return coords.some(c => featureIntersectsRect(c, rect));
+}
+
 async function loadForBounds(cfg, mapInstance, index) {
   const ps        = panelState[index];
   const myId      = ++ps.loadId;
@@ -432,13 +440,29 @@ async function loadForBounds(cfg, mapInstance, index) {
     });
 
     let count = 0;
-    // Passing the URL + rect lets FlatGeobuf use HTTP Range requests so only
-    // features that intersect the current viewport are downloaded.
-    for await (const feature of flatgeobuf.deserialize(cfg.url, rect)) {
-      if (ps.loadId !== myId) return; // superseded by a newer pan/zoom
+    const addFeature = (feature) => {
       geojsonLayer.addData(reprojectFeature(feature));
       count++;
       if (count % 200 === 0) countEl.textContent = count.toLocaleString();
+    };
+
+    try {
+      for await (const feature of flatgeobuf.deserialize(cfg.url, rect)) {
+        if (ps.loadId !== myId) return;
+        addFeature(feature);
+      }
+    } catch (innerErr) {
+      if (!(innerErr instanceof RangeError)) throw innerErr;
+      // Spatial index R-tree traversal failed (version 0 fgb off-by-one bug).
+      // Fall back: stream all features, filter client-side by viewport bbox.
+      geojsonLayer.clearLayers();
+      count = 0;
+      for await (const feature of flatgeobuf.deserialize(cfg.url)) {
+        if (ps.loadId !== myId) return;
+        if (feature.geometry && featureIntersectsRect(feature.geometry.coordinates, rect)) {
+          addFeature(feature);
+        }
+      }
     }
 
     if (ps.loadId !== myId) return;
