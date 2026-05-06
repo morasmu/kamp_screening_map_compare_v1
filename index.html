@@ -471,14 +471,20 @@ function clearLayer(index, mapInstance) {
   document.getElementById(`error${index}`).style.display = 'none';
 }
 
-// ── Per-map moveend: each map manages its own layer independently ─────────
+// ── Load data after movement stops ───────────────────────────────────────
+// Only the driving map's moveend triggers loading (isSynced[i] is true on
+// synced maps while setView is running, so their moveend is ignored).
+// The driving map then loads all three panels since they share the viewport.
 maps.forEach((m, i) => {
   m.on('moveend', () => {
-    if (m.getZoom() >= LOAD_ZOOM) {
-      loadForBounds(LAYERS[i], m, i);
-    } else {
-      clearLayer(i, m);
-    }
+    if (isSynced[i]) return;
+    maps.forEach((_, j) => {
+      if (maps[j].getZoom() >= LOAD_ZOOM) {
+        loadForBounds(LAYERS[j], maps[j], j);
+      } else {
+        clearLayer(j, maps[j]);
+      }
+    });
   });
 });
 </script>
