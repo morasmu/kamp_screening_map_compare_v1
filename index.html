@@ -453,11 +453,15 @@ async function loadForBounds(cfg, mapInstance, index) {
       }
     } catch (innerErr) {
       if (!(innerErr instanceof RangeError) && !(innerErr instanceof TypeError)) throw innerErr;
-      // Spatial index R-tree traversal failed (version 0 fgb off-by-one bug).
-      // Fall back: stream all features, filter client-side by viewport bbox.
+      // v4.4.0 URL path always calls selectBbox — even with no rect — so we
+      // can't call deserialize(url) without crashing too. Fetch the file
+      // manually and pass response.body (ReadableStream) instead; that code
+      // path skips the spatial index entirely.
       geojsonLayer.clearLayers();
       count = 0;
-      for await (const feature of flatgeobuf.deserialize(cfg.url)) {
+      const resp = await fetch(cfg.url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      for await (const feature of flatgeobuf.deserialize(resp.body)) {
         if (ps.loadId !== myId) return;
         if (feature.geometry && featureIntersectsRect(feature.geometry.coordinates, rect)) {
           addFeature(feature);
