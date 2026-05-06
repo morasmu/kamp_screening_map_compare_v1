@@ -259,7 +259,7 @@
 // EPSG:25832 (ETRS89 / UTM zone 32N) — the CRS used by the FlatGeobuf files.
 // Bounds must be transformed to this CRS for spatial queries, and feature
 // coordinates must be reprojected back to WGS84 for Leaflet display.
-proj4.defs("EPSG:25832", "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs +type=crs");
+proj4.defs("EPSG:25832", "+proj=utm +zone=32 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
 
 function toUtm32(lngLat)  { return proj4("EPSG:4326", "EPSG:25832", lngLat); }
 function toWgs84(xy)      { return proj4("EPSG:25832", "EPSG:4326", xy); }
