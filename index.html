@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sammenligning af KAMP screeningslag</title>
+  <title>Map Compare</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -20,9 +20,9 @@
       --border:     rgba(255,255,255,0.07);
       --gap:        6px;
       --header-h:   48px;
-      --accent-1:   #38bdf8;   /* sky  */
-      --accent-2:   #a3e635;   /* lime */
-      --accent-3:   #f97316;   /* orange */
+      --accent-1:   #38bdf8;
+      --accent-2:   #a3e635;
+      --accent-3:   #f97316;
       --text:       #e8eaf0;
       --muted:      rgba(232,234,240,0.40);
       --font:       'Syne', sans-serif;
@@ -87,7 +87,6 @@
       overflow: hidden;
       border: 1px solid var(--border);
       background: #000;
-      /* entrance animation */
       opacity: 0;
       transform: translateY(12px);
       animation: fadeUp 0.5s ease forwards;
@@ -163,6 +162,37 @@
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Zoom hint overlay ── */
+    .panel-hint {
+      position: absolute;
+      inset: 0;
+      z-index: 299;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: rgba(15,17,23,0.50);
+      backdrop-filter: blur(2px);
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    .panel-hint.hidden { opacity: 0; }
+
+    .panel-hint .hint-text {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.6;
+    }
+    .panel-hint .hint-zoom {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--panel-color);
+      opacity: 0.7;
+    }
 
     /* ── Error badge ── */
     .panel-error {
@@ -252,15 +282,21 @@ const WMS_LAYER = "dtk_skaermkort_daempet";
 
 const INIT_CENTER = [56.0, 10.0];
 const INIT_ZOOM   = 7;
+
+// Minimum zoom before data is fetched. Zoom 13 ≈ city/district level.
+const LOAD_ZOOM = 13;
 // ══════════════════════════════════════════════
 
 const grid = document.getElementById('grid');
 const maps = [];
 let syncing = false;
 
+// Per-panel state: tracks the active GeoJSON layer and a load-generation
+// counter used to discard results from superseded fetches.
+const panelState = LAYERS.map(() => ({ layer: null, loadId: 0 }));
+
 // ── Build panels & maps ───────────────────────
 LAYERS.forEach((cfg, i) => {
-  // Panel shell
   const panel = document.createElement('div');
   panel.className = 'panel';
   panel.style.setProperty('--panel-color', cfg.color);
@@ -275,23 +311,26 @@ LAYERS.forEach((cfg, i) => {
       <span class="count" id="count${i}"></span>
     </div>
 
-    <div class="panel-loading" id="loading${i}">
+    <div class="panel-loading hidden" id="loading${i}">
       <div class="spinner"></div>
+    </div>
+
+    <div class="panel-hint" id="hint${i}">
+      <span class="hint-text">Zoom in to load data</span>
+      <span class="hint-zoom">zoom &ge; ${LOAD_ZOOM} required</span>
     </div>
 
     <div class="panel-error" id="error${i}"></div>
   `;
   grid.appendChild(panel);
 
-  // Leaflet map
   const m = L.map(`map${i}`, {
     center:      INIT_CENTER,
     zoom:        INIT_ZOOM,
-    zoomControl: i === 0,   // only first panel shows zoom buttons
+    zoomControl: i === 0,
     attributionControl: false,
   });
 
-  // WMS background
   L.tileLayer.wms(`${WMS_URL}?token=${WMS_TOKEN}`, {
     layers:      WMS_LAYER,
     format:      'image/png',
@@ -316,16 +355,34 @@ maps.forEach((m, i) => {
   m.on('moveend', () => { syncing = false; });
 });
 
-// ── Load FlatGeobuf layers ────────────────────
-async function loadLayer(cfg, mapInstance, index) {
-  const loadingEl = document.getElementById(`loading${index}`);
+// ── Spatial data loading ──────────────────────
+async function loadForBounds(cfg, mapInstance, index) {
+  const ps        = panelState[index];
+  const myId      = ++ps.loadId;
   const countEl   = document.getElementById(`count${index}`);
+  const loadingEl = document.getElementById(`loading${index}`);
+  const hintEl    = document.getElementById(`hint${index}`);
   const errorEl   = document.getElementById(`error${index}`);
 
-  try {
-    const resp = await fetch(cfg.url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  // Remove previous layer
+  if (ps.layer) {
+    mapInstance.removeLayer(ps.layer);
+    ps.layer = null;
+  }
+  countEl.textContent   = '';
+  errorEl.style.display = 'none';
+  hintEl.classList.add('hidden');
+  loadingEl.classList.remove('hidden');
 
+  const b    = mapInstance.getBounds();
+  const rect = {
+    minX: b.getWest(),
+    minY: b.getSouth(),
+    maxX: b.getEast(),
+    maxY: b.getNorth(),
+  };
+
+  try {
     const geojsonLayer = L.geoJSON(null, {
       style: () => ({
         color:       cfg.color,
@@ -357,27 +414,55 @@ async function loadLayer(cfg, mapInstance, index) {
     });
 
     let count = 0;
-    const iter = flatgeobuf.deserialize(resp.body);
-    for await (const feature of iter) {
+    // Passing the URL + rect lets FlatGeobuf use HTTP Range requests so only
+    // features that intersect the current viewport are downloaded.
+    for await (const feature of flatgeobuf.deserialize(cfg.url, rect)) {
+      if (ps.loadId !== myId) return; // superseded by a newer pan/zoom
       geojsonLayer.addData(feature);
       count++;
       if (count % 200 === 0) countEl.textContent = count.toLocaleString();
     }
 
+    if (ps.loadId !== myId) return;
     geojsonLayer.addTo(mapInstance);
+    ps.layer = geojsonLayer;
     countEl.textContent = count.toLocaleString();
 
   } catch (err) {
+    if (ps.loadId !== myId) return;
     console.error(`Layer ${index + 1} error:`, err);
-    errorEl.textContent = err.message;
+    errorEl.textContent   = err.message;
     errorEl.style.display = 'block';
   } finally {
-    loadingEl.classList.add('hidden');
-    setTimeout(() => loadingEl.remove(), 500);
+    if (ps.loadId === myId) {
+      loadingEl.classList.add('hidden');
+    }
   }
 }
 
-LAYERS.forEach((cfg, i) => loadLayer(cfg, maps[i], i));
+function clearLayer(index, mapInstance) {
+  const ps = panelState[index];
+  ps.loadId++; // cancel any in-progress load
+  if (ps.layer) {
+    mapInstance.removeLayer(ps.layer);
+    ps.layer = null;
+  }
+  document.getElementById(`count${index}`).textContent   = '';
+  document.getElementById(`loading${index}`).classList.add('hidden');
+  document.getElementById(`hint${index}`).classList.remove('hidden');
+  document.getElementById(`error${index}`).style.display = 'none';
+}
+
+// ── Per-map moveend: each map manages its own layer independently ─────────
+maps.forEach((m, i) => {
+  m.on('moveend', () => {
+    if (m.getZoom() >= LOAD_ZOOM) {
+      loadForBounds(LAYERS[i], m, i);
+    } else {
+      clearLayer(i, m);
+    }
+  });
+});
 </script>
 </body>
 </html>
