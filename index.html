@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Map Compare</title>
+  <title>Sammenligning af screeningslag fra KAMP, maj 2026</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/flatgeobuf@3.30.0/dist/flatgeobuf-geojson.min.js"></script>
+  <script src="https://unpkg.com/proj4@2.9.0/dist/proj4.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
 
@@ -243,7 +244,7 @@
 <body>
 
 <header>
-  <h1>Map Compare</h1>
+  <h1>Sammenligning af screeningslag fra KAMP, maj 2026</h1>
   <div class="sync-badge">
     <div class="sync-dot"></div>
     Navigation linked
@@ -255,6 +256,23 @@
 </div>
 
 <script>
+// EPSG:25832 (ETRS89 / UTM zone 32N) — the CRS used by the FlatGeobuf files.
+// Bounds must be transformed to this CRS for spatial queries, and feature
+// coordinates must be reprojected back to WGS84 for Leaflet display.
+proj4.defs("EPSG:25832", "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs +type=crs");
+
+function toUtm32(lngLat)  { return proj4("EPSG:4326", "EPSG:25832", lngLat); }
+function toWgs84(xy)      { return proj4("EPSG:25832", "EPSG:4326", xy); }
+
+function reprojectCoords(coords) {
+  if (typeof coords[0] === "number") return toWgs84([coords[0], coords[1]]);
+  return coords.map(reprojectCoords);
+}
+function reprojectFeature(feature) {
+  if (!feature.geometry) return feature;
+  return { ...feature, geometry: { ...feature.geometry, coordinates: reprojectCoords(feature.geometry.coordinates) } };
+}
+
 // ══════════════════════════════════════════════
 //  CONFIGURATION
 // ══════════════════════════════════════════════
@@ -374,13 +392,10 @@ async function loadForBounds(cfg, mapInstance, index) {
   hintEl.classList.add('hidden');
   loadingEl.classList.remove('hidden');
 
-  const b    = mapInstance.getBounds();
-  const rect = {
-    minX: b.getWest(),
-    minY: b.getSouth(),
-    maxX: b.getEast(),
-    maxY: b.getNorth(),
-  };
+  const b  = mapInstance.getBounds();
+  const sw = toUtm32([b.getWest(),  b.getSouth()]);
+  const ne = toUtm32([b.getEast(),  b.getNorth()]);
+  const rect = { minX: sw[0], minY: sw[1], maxX: ne[0], maxY: ne[1] };
 
   try {
     const geojsonLayer = L.geoJSON(null, {
@@ -418,7 +433,7 @@ async function loadForBounds(cfg, mapInstance, index) {
     // features that intersect the current viewport are downloaded.
     for await (const feature of flatgeobuf.deserialize(cfg.url, rect)) {
       if (ps.loadId !== myId) return; // superseded by a newer pan/zoom
-      geojsonLayer.addData(feature);
+      geojsonLayer.addData(reprojectFeature(feature));
       count++;
       if (count % 200 === 0) countEl.textContent = count.toLocaleString();
     }
