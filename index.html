@@ -289,7 +289,7 @@ const LAYERS = [
   },
   {
     name:  "Screeningslag 2026 (2025 10 m lag), + kælder < 2m",
-    url:   "https://kamp.klimatilpasning.dk/data/flatgeobuf/2026/kloakopland_bygning_2026_1.fgb",
+    url:   "https://olanderconsulting.dk/mst_screeningslag_maj2026/screeningslag_forslag_maj2026_2026-1.fgb",
     color: "#f97316",
   },
 ];
@@ -301,13 +301,12 @@ const WMS_LAYER = "dtk_skaermkort_daempet";
 const INIT_CENTER = [56.0, 10.0];
 const INIT_ZOOM   = 7;
 
-// Minimum zoom before data is fetched. Zoom 13 ≈ city/district level.
-const LOAD_ZOOM = 13;
+// Minimum zoom before data is fetched. Zoom 12 ≈ city/district level.
+const LOAD_ZOOM = 12;
 // ══════════════════════════════════════════════
 
 const grid = document.getElementById('grid');
 const maps = [];
-let syncing = false;
 
 // Per-panel state: tracks the active GeoJSON layer and a load-generation
 // counter used to discard results from superseded fetches.
@@ -335,7 +334,7 @@ LAYERS.forEach((cfg, i) => {
 
     <div class="panel-hint" id="hint${i}">
       <span class="hint-text">Zoom in to load data</span>
-      <span class="hint-zoom">zoom &ge; ${LOAD_ZOOM} required</span>
+      <span class="hint-zoom">zoom ≥ ${LOAD_ZOOM} required</span>
     </div>
 
     <div class="panel-error" id="error${i}"></div>
@@ -360,17 +359,21 @@ LAYERS.forEach((cfg, i) => {
 });
 
 // ── Sync navigation ───────────────────────────
+// Per-map flag: true while a map is being programmatically moved by another
+// map's event, so its own move handler doesn't cascade back.
+const isSynced = maps.map(() => false);
+
 maps.forEach((m, i) => {
-  m.on('movestart', () => { syncing = true; });
   m.on('move', () => {
-    if (!syncing) return;
-    const center = m.getCenter();
-    const zoom   = m.getZoom();
+    if (isSynced[i]) return;
+    const c = m.getCenter(), z = m.getZoom();
     maps.forEach((other, j) => {
-      if (j !== i) other.setView(center, zoom, { animate: false });
+      if (j === i) return;
+      isSynced[j] = true;
+      other.setView(c, z, { animate: false });
+      isSynced[j] = false;
     });
   });
-  m.on('moveend', () => { syncing = false; });
 });
 
 // ── Spatial data loading ──────────────────────
