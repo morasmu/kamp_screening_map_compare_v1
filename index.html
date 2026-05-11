@@ -236,7 +236,9 @@
       border-radius: 5px;
       padding: 5px 9px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.4);
-      white-space: nowrap;
+      white-space: normal;
+      max-width: 260px;
+      word-break: break-word;
     }
     .leaflet-tooltip.ftip::before { display: none; }
   </style>
@@ -377,12 +379,15 @@ maps.forEach((m, i) => {
 });
 
 // ── Spatial data loading ──────────────────────
-function featureIntersectsRect(coords, rect) {
-  if (typeof coords[0] === 'number') {
-    return coords[0] >= rect.minX - 500 && coords[0] <= rect.maxX + 500 &&
-           coords[1] >= rect.minY - 500 && coords[1] <= rect.maxY + 500;
+// Registry for cross-panel hover: featureKey → [{panelIndex, layer}]
+const featureRegistry = new Map();
+
+function getFeatureKey(feature) {
+  const props = feature.properties || {};
+  for (const k of ['bygnings_id', 'bygningsid', 'id', 'fid', 'objectid', 'OBJECTID', 'FID', 'ID', 'gid']) {
+    if (props[k] != null) return String(props[k]);
   }
-  return coords.some(c => featureIntersectsRect(c, rect));
+  return null;
 }
 
 async function loadForBounds(cfg, mapInstance, index) {
@@ -393,7 +398,6 @@ async function loadForBounds(cfg, mapInstance, index) {
   const hintEl    = document.getElementById(`hint${index}`);
   const errorEl   = document.getElementById(`error${index}`);
 
-  // Remove previous layer
   if (ps.layer) {
     mapInstance.removeLayer(ps.layer);
     ps.layer = null;
@@ -403,9 +407,16 @@ async function loadForBounds(cfg, mapInstance, index) {
   hintEl.classList.add('hidden');
   loadingEl.classList.remove('hidden');
 
-  const b  = mapInstance.getBounds();
-  const sw = toUtm32([b.getWest(),  b.getSouth()]);
-  const ne = toUtm32([b.getEast(),  b.getNorth()]);
+  // Remove stale featureRegistry entries for this panel
+  for (const [key, entries] of featureRegistry) {
+    const kept = entries.filter(e => e.panelIndex !== index);
+    if (kept.length === 0) featureRegistry.delete(key);
+    else featureRegistry.set(key, kept);
+  }
+
+  const b    = mapInstance.getBounds();
+  const sw   = toUtm32([b.getWest(),  b.getSouth()]);
+  const ne   = toUtm32([b.getEast(),  b.getNorth()]);
   const rect = { minX: sw[0], minY: sw[1], maxX: ne[0], maxY: ne[1] };
 
   try {
@@ -419,7 +430,16 @@ async function loadForBounds(cfg, mapInstance, index) {
       }),
       onEachFeature(feature, layer) {
         const props = feature.properties || {};
-        const rows  = Object.entries(props)
+
+        // Cross-panel registry
+        const key = getFeatureKey(feature);
+        if (key) {
+          if (!featureRegistry.has(key)) featureRegistry.set(key, []);
+          featureRegistry.get(key).push({ panelIndex: index, layer });
+        }
+
+        // Tooltip
+        const rows = Object.entries(props)
           .map(([k, v]) => `<b style="color:${cfg.color}">${k}</b> ${v}`)
           .join('<br>');
         if (rows) {
@@ -430,43 +450,35 @@ async function loadForBounds(cfg, mapInstance, index) {
             offset:    [0, -6],
           });
         }
+
         layer.on('mouseover', function () {
-          this.setStyle({ fillOpacity: 0.50, weight: 2.5 });
+          this.setStyle({ fillOpacity: 0.55, weight: 2.5 });
+          if (key) {
+            for (const { panelIndex: pi, layer: ol } of (featureRegistry.get(key) || [])) {
+              if (pi !== index) ol.setStyle({ color: '#ffffff', weight: 2.5, fillOpacity: 0.55 });
+            }
+          }
         });
         layer.on('mouseout', function () {
           geojsonLayer.resetStyle(this);
+          if (key) {
+            for (const { panelIndex: pi, layer: ol } of (featureRegistry.get(key) || [])) {
+              if (pi !== index) {
+                const g = panelState[pi].layer;
+                if (g) g.resetStyle(ol);
+              }
+            }
+          }
         });
       },
     });
 
     let count = 0;
-    const addFeature = (feature) => {
+    for await (const feature of flatgeobuf.deserialize(cfg.url, rect)) {
+      if (ps.loadId !== myId) return;
       geojsonLayer.addData(reprojectFeature(feature));
       count++;
       if (count % 200 === 0) countEl.textContent = count.toLocaleString();
-    };
-
-    try {
-      for await (const feature of flatgeobuf.deserialize(cfg.url, rect)) {
-        if (ps.loadId !== myId) return;
-        addFeature(feature);
-      }
-    } catch (innerErr) {
-      if (!(innerErr instanceof RangeError) && !(innerErr instanceof TypeError)) throw innerErr;
-      // v4.4.0 URL path always calls selectBbox — even with no rect — so we
-      // can't call deserialize(url) without crashing too. Fetch the file
-      // manually and pass response.body (ReadableStream) instead; that code
-      // path skips the spatial index entirely.
-      geojsonLayer.clearLayers();
-      count = 0;
-      const resp = await fetch(cfg.url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      for await (const feature of flatgeobuf.deserialize(resp.body)) {
-        if (ps.loadId !== myId) return;
-        if (feature.geometry && featureIntersectsRect(feature.geometry.coordinates, rect)) {
-          addFeature(feature);
-        }
-      }
     }
 
     if (ps.loadId !== myId) return;
