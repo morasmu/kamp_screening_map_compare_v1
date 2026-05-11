@@ -242,15 +242,32 @@
       overflow-wrap: break-word;
     }
     .leaflet-tooltip.ftip::before { display: none; }
+
+    #resetView {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 5px;
+      padding: 4px 12px;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      transition: background 0.15s, color 0.15s;
+    }
+    #resetView:hover { background: rgba(255,255,255,0.12); color: var(--text); }
   </style>
 </head>
 <body>
 
 <header>
   <h1>Sammenligning af screeningslag fra KAMP, maj 2026</h1>
-  <div class="sync-badge">
-    <div class="sync-dot"></div>
-    Navigation linked
+  <div style="display:flex;align-items:center;gap:12px;">
+    <button id="resetView" onclick="resetView()">Nulstil zoom</button>
+    <div class="sync-badge">
+      <div class="sync-dot"></div>
+      Navigation linked
+    </div>
   </div>
 </header>
 
@@ -306,6 +323,21 @@ const INIT_ZOOM   = 7;
 
 // Minimum zoom before data is fetched. Zoom 12 ≈ city/district level.
 const LOAD_ZOOM = 12;
+
+// Restore last position from localStorage, fall back to defaults
+const savedView = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem('kamp_map_view'));
+    if (v && typeof v.lat === 'number') return v;
+  } catch {}
+  return null;
+})();
+const startCenter = savedView ? [savedView.lat, savedView.lng] : INIT_CENTER;
+const startZoom   = savedView ? savedView.zoom : INIT_ZOOM;
+
+function resetView() {
+  maps[0].setView(INIT_CENTER, INIT_ZOOM);
+}
 // ══════════════════════════════════════════════
 
 const grid = document.getElementById('grid');
@@ -345,8 +377,8 @@ LAYERS.forEach((cfg, i) => {
   grid.appendChild(panel);
 
   const m = L.map(`map${i}`, {
-    center:      INIT_CENTER,
-    zoom:        INIT_ZOOM,
+    center:      startCenter,
+    zoom:        startZoom,
     zoomControl: i === 0,
     attributionControl: false,
   });
@@ -519,6 +551,8 @@ function clearLayer(index, mapInstance) {
 maps.forEach((m, i) => {
   m.on('moveend', () => {
     if (isSynced[i]) return;
+    const c = m.getCenter();
+    localStorage.setItem('kamp_map_view', JSON.stringify({ lat: c.lat, lng: c.lng, zoom: m.getZoom() }));
     maps.forEach((_, j) => {
       if (maps[j].getZoom() >= LOAD_ZOOM) {
         loadForBounds(LAYERS[j], maps[j], j);
