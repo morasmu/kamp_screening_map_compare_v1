@@ -237,8 +237,9 @@
       padding: 5px 9px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.4);
       white-space: normal;
+      min-width: 160px;
       max-width: 260px;
-      word-break: break-word;
+      overflow-wrap: break-word;
     }
     .leaflet-tooltip.ftip::before { display: none; }
   </style>
@@ -455,7 +456,7 @@ async function loadForBounds(cfg, mapInstance, index) {
           this.setStyle({ fillOpacity: 0.55, weight: 2.5 });
           if (key) {
             for (const { panelIndex: pi, layer: ol } of (featureRegistry.get(key) || [])) {
-              if (pi !== index) ol.setStyle({ color: '#ffffff', weight: 2.5, fillOpacity: 0.55 });
+              if (pi !== index) ol.setStyle({ color: '#ef4444', weight: 2.5, fillOpacity: 0.55 });
             }
           }
         });
