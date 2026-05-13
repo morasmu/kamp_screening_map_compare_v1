@@ -10,7 +10,7 @@
   <script src="https://unpkg.com/flatgeobuf@4.4.0/dist/flatgeobuf-geojson.min.js"></script>
   <script src="https://unpkg.com/proj4@2.9.0/dist/proj4.js"></script>
   <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
-  <script src="https://unpkg.com/georaster-layer-for-leaflet@2.3.0/dist/georaster-layer-for-leaflet.min.js"></script>
+  <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/v3/webpack/bundle/georaster-layer-for-leaflet.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
 
@@ -717,7 +717,7 @@ maps.forEach((m, i) => {
 (async () => {
   try {
     const gr = await parseGeoraster(
-      'https://olanderconsulting.dk/mst_screeningslag_maj2026/Winter_predict_cog_warped.tif'
+      'https://olanderconsulting.dk/mst_screeningslag_maj2026/Winter_predict_cog.tif'
     );
     const lyr = new GeoRasterLayer({
       georaster:             gr,
