@@ -9,6 +9,8 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/flatgeobuf@4.4.0/dist/flatgeobuf-geojson.min.js"></script>
   <script src="https://unpkg.com/proj4@2.9.0/dist/proj4.js"></script>
+  <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
+  <script src="https://unpkg.com/georaster-layer-for-leaflet@2.3.0/dist/georaster-layer-for-leaflet.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
 
@@ -20,7 +22,7 @@
       --surface:    #181c26;
       --border:     rgba(255,255,255,0.07);
       --gap:        6px;
-      --header-h:   48px;
+      --header-h:   62px;
       --accent-1:   #38bdf8;
       --accent-2:   #a3e635;
       --accent-3:   #f97316;
@@ -256,12 +258,95 @@
       transition: background 0.15s, color 0.15s;
     }
     #resetView:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+
+    .disclaimer {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: #f97316;
+      letter-spacing: 0.04em;
+      opacity: 0.85;
+    }
+
+    #wmsToggle {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15,17,23,0.90);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 16px 6px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: background 0.15s, color 0.15s, opacity 0.15s;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      user-select: none;
+      white-space: nowrap;
+    }
+    #wmsToggle:hover { background: rgba(15,17,23,0.98); color: var(--text); }
+    #wmsToggle.inactive { opacity: 0.45; }
+    #wmsToggle .wms-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #60a5fa;
+      box-shadow: 0 0 7px #60a5fa;
+      flex-shrink: 0;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    #wmsToggle.inactive .wms-dot { background: var(--muted); box-shadow: none; }
+
+    #wmsLegend {
+      position: fixed;
+      bottom: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: flex;
+      flex-direction: row;
+      gap: 0;
+      background: rgba(15,17,23,0.90);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      white-space: nowrap;
+      pointer-events: none;
+      transition: opacity 0.15s;
+    }
+    #wmsLegend.hidden { opacity: 0; }
+    .leg-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 8px 0 0;
+    }
+    .leg-item:last-child { padding-right: 0; }
+    .leg-swatch {
+      width: 12px; height: 12px;
+      border-radius: 2px;
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Sammenligning af screeningslag fra KAMP, maj 2026</h1>
+  <div style="display:flex;flex-direction:column;gap:3px;">
+    <h1>Sammenligning af screeningslag fra KAMP, maj 2026</h1>
+    <span class="disclaimer">Intern side, med ikke-endelige data &mdash; Kontakt maolr@mst.dk</span>
+  </div>
   <div style="display:flex;align-items:center;gap:12px;">
     <button id="resetView" onclick="resetView()">Nulstil zoom</button>
     <div class="sync-badge">
@@ -270,6 +355,22 @@
     </div>
   </div>
 </header>
+
+<div id="wmsLegend">
+  <div class="leg-item"><span class="leg-swatch" style="background:#003f8c"></span>0–0.5 m</div>
+  <div class="leg-item"><span class="leg-swatch" style="background:#5599cc"></span>0.5–1 m</div>
+  <div class="leg-item"><span class="leg-swatch" style="background:#a8d0e8"></span>1–2 m</div>
+  <div class="leg-item"><span class="leg-swatch" style="background:#e0e0de"></span>2–3 m</div>
+  <div class="leg-item"><span class="leg-swatch" style="background:#c8dca0"></span>3–4 m</div>
+  <div class="leg-item"><span class="leg-swatch" style="background:#f0d020"></span>4–5 m</div>
+  <div class="leg-item"><span class="leg-swatch" style="background:#c86830"></span>5–10 m</div>
+  <div class="leg-item"><span class="leg-swatch" style="background:#784020"></span>&gt;10 m</div>
+</div>
+
+<div id="wmsToggle" onclick="toggleWms()">
+  <span class="wms-dot"></span>
+  <span class="wms-label">Grundvandsstand (HIP) &mdash; skjul</span>
+</div>
 
 <div id="grid">
   <!-- panels injected by JS -->
@@ -318,6 +419,10 @@ const WMS_URL   = "https://api.dataforsyningen.dk/topo_skaermkort_DAF";
 const WMS_TOKEN = "815e9bb1c49eefff1f03926e2cd7b10e";
 const WMS_LAYER = "dtk_skaermkort_daempet";
 
+const HIP_WMS_URL   = "https://api.dataforsyningen.dk/wms/hip_statistics";
+const HIP_WMS_TOKEN = "5663238b5c6de2672e193d7009041081";
+const HIP_WMS_LAYER = "shallow_groundwater_depth_statistics_10m_winter_p50_1991_2025";
+
 const INIT_CENTER = [56.0, 10.0];
 const INIT_ZOOM   = 7;
 
@@ -337,6 +442,36 @@ const startZoom   = savedView ? savedView.zoom : INIT_ZOOM;
 
 function resetView() {
   maps[0].setView(INIT_CENTER, INIT_ZOOM);
+}
+
+// One overlay entry per panel: GeoRasterLayer for panel 0, WMS tile layers for panels 1+2
+const overlayLayers = [null, null, null];
+let wmsVisible = true;
+
+// Color ramp matching the HIP shallow-groundwater-depth WMS legend (depth in metres)
+function colorForDepth(d) {
+  if      (d <= 0.5)  return '#003f8c';
+  else if (d <= 1.0)  return '#5599cc';
+  else if (d <= 2.0)  return '#a8d0e8';
+  else if (d <= 3.0)  return '#e0e0de';
+  else if (d <= 4.0)  return '#c8dca0';
+  else if (d <= 5.0)  return '#f0d020';
+  else if (d <= 10.0) return '#c86830';
+  else                return '#784020';
+}
+
+function toggleWms() {
+  wmsVisible = !wmsVisible;
+  overlayLayers.forEach((lyr, i) => {
+    if (!lyr) return;
+    if (wmsVisible) lyr.addTo(maps[i]);
+    else maps[i].removeLayer(lyr);
+  });
+  const btn = document.getElementById('wmsToggle');
+  btn.classList.toggle('inactive', !wmsVisible);
+  btn.querySelector('.wms-label').textContent =
+    wmsVisible ? 'Grundvandsstand (HIP) — skjul' : 'Grundvandsstand (HIP) — vis';
+  document.getElementById('wmsLegend').classList.toggle('hidden', !wmsVisible);
 }
 // ══════════════════════════════════════════════
 
@@ -389,6 +524,19 @@ LAYERS.forEach((cfg, i) => {
     transparent: true,
     version:     '1.1.1',
   }).addTo(m);
+
+  // Panels 1+2 use HIP WMS; panel 0 uses a GeoTIFF loaded below
+  if (i > 0) {
+    const hipLayer = L.tileLayer.wms(`${HIP_WMS_URL}?token=${HIP_WMS_TOKEN}`, {
+      layers:      HIP_WMS_LAYER,
+      format:      'image/png',
+      transparent: true,
+      version:     '1.1.1',
+      opacity:     0.75,
+    });
+    hipLayer.addTo(m);
+    overlayLayers[i] = hipLayer;
+  }
 
   maps.push(m);
 });
@@ -562,6 +710,31 @@ maps.forEach((m, i) => {
     });
   });
 });
+
+// ── GeoTIFF overlay for panel 0 (case 1) ─────────────────────────────────
+// Uses georaster-layer-for-leaflet to render Winter_predict.tif with the
+// same depth-colour ramp as the HIP WMS layers on panels 1+2.
+(async () => {
+  try {
+    const gr = await parseGeoraster(
+      'https://olanderconsulting.dk/mst_screeningslag_maj2026/Winter_predict_cog_warped.tif'
+    );
+    const lyr = new GeoRasterLayer({
+      georaster:             gr,
+      opacity:               0.75,
+      resolution:            256,
+      pixelValuesToColorFn:  values => {
+        const d = values[0];
+        if (d === null || d === gr.noDataValue || isNaN(d)) return null;
+        return colorForDepth(d);
+      },
+    });
+    overlayLayers[0] = lyr;
+    if (wmsVisible) lyr.addTo(maps[0]);
+  } catch (e) {
+    console.error('GeoTIFF (panel 0) load error:', e);
+  }
+})();
 </script>
 </body>
 </html>
