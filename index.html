@@ -9,9 +9,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/flatgeobuf@4.4.0/dist/flatgeobuf-geojson.min.js"></script>
   <script src="https://unpkg.com/proj4@2.9.0/dist/proj4.js"></script>
-  <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
-  <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/v3/webpack/bundle/georaster-layer-for-leaflet.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
 
   <style>
@@ -444,21 +442,8 @@ function resetView() {
   maps[0].setView(INIT_CENTER, INIT_ZOOM);
 }
 
-// One overlay entry per panel: GeoRasterLayer for panel 0, WMS tile layers for panels 1+2
-const overlayLayers = [null, null, null];
+const overlayLayers = [null, null, null]; // index 0 reserved for future GeoTIFF
 let wmsVisible = true;
-
-// Color ramp matching the HIP shallow-groundwater-depth WMS legend (depth in metres)
-function colorForDepth(d) {
-  if      (d <= 0.5)  return '#003f8c';
-  else if (d <= 1.0)  return '#5599cc';
-  else if (d <= 2.0)  return '#a8d0e8';
-  else if (d <= 3.0)  return '#e0e0de';
-  else if (d <= 4.0)  return '#c8dca0';
-  else if (d <= 5.0)  return '#f0d020';
-  else if (d <= 10.0) return '#c86830';
-  else                return '#784020';
-}
 
 function toggleWms() {
   wmsVisible = !wmsVisible;
@@ -525,7 +510,6 @@ LAYERS.forEach((cfg, i) => {
     version:     '1.1.1',
   }).addTo(m);
 
-  // Panels 1+2 use HIP WMS; panel 0 uses a GeoTIFF loaded below
   if (i > 0) {
     const hipLayer = L.tileLayer.wms(`${HIP_WMS_URL}?token=${HIP_WMS_TOKEN}`, {
       layers:      HIP_WMS_LAYER,
@@ -711,30 +695,6 @@ maps.forEach((m, i) => {
   });
 });
 
-// ── GeoTIFF overlay for panel 0 (case 1) ─────────────────────────────────
-// Uses georaster-layer-for-leaflet to render Winter_predict.tif with the
-// same depth-colour ramp as the HIP WMS layers on panels 1+2.
-(async () => {
-  try {
-    const gr = await parseGeoraster(
-      'https://olanderconsulting.dk/mst_screeningslag_maj2026/Winter_predict_cog.tif'
-    );
-    const lyr = new GeoRasterLayer({
-      georaster:             gr,
-      opacity:               0.75,
-      resolution:            256,
-      pixelValuesToColorFn:  values => {
-        const d = values[0];
-        if (d === null || d === gr.noDataValue || isNaN(d)) return null;
-        return colorForDepth(d);
-      },
-    });
-    overlayLayers[0] = lyr;
-    if (wmsVisible) lyr.addTo(maps[0]);
-  } catch (e) {
-    console.error('GeoTIFF (panel 0) load error:', e);
-  }
-})();
 </script>
 </body>
 </html>
