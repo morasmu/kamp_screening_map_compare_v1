@@ -354,7 +354,7 @@
   </div>
 </header>
 
-<div id="wmsLegend">
+<div id="wmsLegend" class="hidden">
   <div class="leg-item"><span class="leg-swatch" style="background:#003f8c"></span>0–0.5 m</div>
   <div class="leg-item"><span class="leg-swatch" style="background:#5599cc"></span>0.5–1 m</div>
   <div class="leg-item"><span class="leg-swatch" style="background:#a8d0e8"></span>1–2 m</div>
@@ -365,9 +365,9 @@
   <div class="leg-item"><span class="leg-swatch" style="background:#784020"></span>&gt;10 m</div>
 </div>
 
-<div id="wmsToggle" onclick="toggleWms()">
+<div id="wmsToggle" class="inactive" onclick="toggleWms()">
   <span class="wms-dot"></span>
-  <span class="wms-label">Grundvandsstand (HIP) &mdash; skjul</span>
+  <span class="wms-label">Grundvandsstand (HIP) &mdash; vis</span>
 </div>
 
 <div id="grid">
@@ -443,7 +443,7 @@ function resetView() {
 }
 
 const overlayLayers = [null, null, null]; // index 0 reserved for future GeoTIFF
-let wmsVisible = true;
+let wmsVisible = false;
 
 function toggleWms() {
   wmsVisible = !wmsVisible;
@@ -518,7 +518,6 @@ LAYERS.forEach((cfg, i) => {
       version:     '1.1.1',
       opacity:     0.75,
     });
-    hipLayer.addTo(m);
     overlayLayers[i] = hipLayer;
   }
 
